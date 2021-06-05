@@ -35,4 +35,5 @@
       docker_container:
         name: "java-app"
         image: "dithu004/java-app:latest"
+        published_ports: "8888:8888"
         state: present
