@@ -1,0 +1,93 @@
+node {
+   try{ 
+		def MVN_HOME
+		def MVN_CMD
+		def SONAR_HOME
+		def DOCKER
+		def DOCKER_CMD
+		
+		stage('Preparation') { 
+			
+			echo "Setting up the environment to start the build ... "
+			MVN_HOME = tool name:'Maven 3.3.9', type: 'maven'
+			MVN_CMD = "${MVN_HOME}/bin/mvn"
+			SONAR_HOME = tool name: 'SonarqubeScanner'
+			DOCKER = tool name: 'docker', type:'org.jenkinsci.plugins.docker.commons.tools.DockerTool'
+			DOCKER_CMD = "${DOCKER}/bin/docker"
+			
+		}
+		
+		stage('Checkout') { 
+			
+			echo "Checking out the code from github ... "
+			git credentialsId: '290e2667-4d08-49cd-8430-9d9238c30b7f', url: 'https://github.com/dithu004/batch10.git'
+			
+		}
+		
+		stage('Build') {
+		   
+			echo "Running the maven build ... "
+			echo "Maven home: ${MVN_HOME}"
+			sh "${MVN_CMD} -Dmaven.test.failure.ignore clean test package"
+			echo "Publish html report ... "
+			publishHTML([allowMissing: false, alwaysLinkToLastBuild: false, keepAll: false, reportDir: 'target/surefire-reports', reportFiles: 'index.html', reportName: 'HTML Report', reportTitles: '']) 
+	   
+			  
+		}
+		
+		stage('Quality Check') {
+		   
+			echo "Running code quality check on sonarqube ... "
+			withSonarQubeEnv('SonarScanner') {
+				sh "${SONAR_HOME}/bin/sonar-scanner -Dsonar.projectKey=bootcamp -Dsonar.java.binaries=target/classes"
+			}
+			  
+		}
+		
+		
+		stage('Build Image') {
+		   
+			echo "Building docker images ... "
+			sh "${DOCKER_CMD} build -t dithu004/java-app:latest ."
+		}
+		
+		stage('Push to DockerHub') {
+		   
+			echo "Pushing docker images to docker hub... "
+			withCredentials([string(credentialsId: 'DockerHubPwd', variable: 'dockerHubPwd')]) {
+			sh "${DOCKER_CMD} login -u dithu004 -p ${dockerHubPwd}"
+			sh "${DOCKER_CMD} push dithu004/java-app:latest"
+			}
+			
+		}
+		
+		stage('Configure & Deploy') {
+		   
+			echo "Prepare and deploy application to host using ansible... "
+			ansiblePlaybook installation: 'ansible', inventory: 'host', playbook: 'configure-gcp.yml'
+		}
+		
+		stage('CleanUp') {
+		   
+			echo "Cleaning up the workspace... "
+			cleanWs()
+		}
+    }  
+catch(Exception e){
+
+    echo "Exception occured..."
+    currentBuild.result="FAILURE"
+    emailext body: 'Build Failed', subject: 'Build Failure', to: 'dithu@gmail.com'
+   
+    }
+finally{
+    
+     if(currentBuild.result!="ABORTED"){
+        echo "Build Completed Successfully!!!"
+        emailext body: 'Build Success', subject: 'Build Success', to: 'deepth.rajendran@bt.com'        
+      }
+	  
+    }
+    
+}
+
